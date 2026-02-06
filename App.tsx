@@ -34,10 +34,8 @@ const App: React.FC = () => {
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const viewerRef = useRef<HTMLDivElement>(null);
 
-  // ROBUST SUPPRESSION of ResizeObserver loop limit error
   useEffect(() => {
     const handleError = (e: any) => {
-      // Catch variations of the ResizeObserver message
       const isResizeObserverError = 
         e.message?.includes('ResizeObserver loop') || 
         (e.error && e.error.message?.includes('ResizeObserver loop'));
@@ -124,20 +122,40 @@ const App: React.FC = () => {
     setPlayback(prev => ({ ...prev, isPlaying: false, isPaused: false }));
   }, []);
 
-  const chunkText = (text: string, maxLen: number = 800): string[] => {
-    const sentences = text.split(/[.!?\n]+/).filter(s => s.trim().length > 2);
+  /**
+   * SMART CHUNKING: Aggregates sentences into large blocks (up to 3000 chars)
+   * to minimize the number of API requests and optimize free tier usage.
+   */
+  const chunkText = (text: string, maxLen: number = 3000): string[] => {
+    // Split by newlines first to preserve paragraph structure, then by sentences
+    const paragraphs = text.split(/\n+/).filter(p => p.trim().length > 0);
     const chunks: string[] = [];
     let currentChunk = "";
 
-    for (const sentence of sentences) {
-      if ((currentChunk + sentence).length < maxLen) {
-        currentChunk += (currentChunk ? " " : "") + sentence.trim() + ".";
+    for (const para of paragraphs) {
+      // If adding this paragraph exceeds maxLen, we split it into sentences
+      if ((currentChunk + para).length > maxLen) {
+        const sentences = para.match(/[^.!?]+[.!?]+/g) || [para];
+        for (const sentence of sentences) {
+          if ((currentChunk + sentence).length > maxLen) {
+            if (currentChunk) chunks.push(currentChunk.trim());
+            currentChunk = sentence;
+          } else {
+            currentChunk += (currentChunk ? " " : "") + sentence;
+          }
+        }
       } else {
-        if (currentChunk) chunks.push(currentChunk);
-        currentChunk = sentence.trim() + ".";
+        currentChunk += (currentChunk ? "\n\n" : "") + para;
+      }
+
+      // Check if currentChunk is getting large enough to be pushed
+      if (currentChunk.length > maxLen * 0.8) {
+        chunks.push(currentChunk.trim());
+        currentChunk = "";
       }
     }
-    if (currentChunk) chunks.push(currentChunk);
+    
+    if (currentChunk.trim()) chunks.push(currentChunk.trim());
     return chunks;
   };
 
@@ -159,16 +177,18 @@ const App: React.FC = () => {
         source.connect(audioContextRef.current.destination);
         currentSourceRef.current = source;
         source.start(0);
+        
         source.onended = () => {
           if (currentSourceRef.current === source) {
-            playNextChunk(chunks, index + 1);
+            // Wait 1.5s before next request to respect RPM limits of free tier
+            setTimeout(() => playNextChunk(chunks, index + 1), 1500);
           }
         };
       }
     } catch (err: any) {
       const msg = err?.message || "";
       if (msg.includes('429')) {
-        setError("S'ha superat el límit de l'API. Esperant uns segons...");
+        setError("S'ha superat el límit de la capa gratuïta. Esperant...");
       } else {
         setError("Error en el servei de veu.");
       }
@@ -186,7 +206,9 @@ const App: React.FC = () => {
       await section.load(book.load.bind(book));
       const doc = section.document;
       const text = doc.body.innerText;
-      const chunks = chunkText(text, 1200);
+      
+      // Use even larger chunks for export (4000 chars) to minimize requests
+      const chunks = chunkText(text, 4000);
       
       if (chunks.length === 0) {
         setExportProgress(null);
@@ -205,7 +227,8 @@ const App: React.FC = () => {
             const rawBytes = decodeBase64(base64Audio);
             pcmChunks.push(new Int16Array(rawBytes.buffer));
           }
-          await new Promise(resolve => setTimeout(resolve, 800));
+          // Mandatory cooldown to prevent 429 in free tier
+          await new Promise(resolve => setTimeout(resolve, 3000));
         } catch (innerErr: any) {
            const msg = innerErr?.message || "";
            if (msg.includes('429')) {
@@ -233,7 +256,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       console.error("Error exportant capítol:", err);
       if (err.message === "QUOTA_EXCEEDED") {
-        setError("La quota de l'API s'ha esgotat temporalment. Intenta-ho més tard.");
+        setError("Quota de l'API esgotada. Espera uns minuts.");
       } else {
         setError("S'ha produït un error en generar l'audiollibre.");
       }
@@ -259,7 +282,7 @@ const App: React.FC = () => {
       if (body) fullPageText += body.innerText;
     });
 
-    const chunks = chunkText(fullPageText, 800);
+    const chunks = chunkText(fullPageText, 3000);
     if (chunks.length === 0) return;
     
     setCurrentTextChunks(chunks);
@@ -373,6 +396,9 @@ const App: React.FC = () => {
                     <p className="text-xs text-slate-400 mt-2 font-medium">
                       Processant bloc {exportProgress.current} de {exportProgress.total}
                     </p>
+                    <p className="text-[10px] text-indigo-400 mt-1 italic animate-pulse">
+                      S'han agrupat fragments de 3.000 caràcters per estalviar quota gratuita.
+                    </p>
                   </div>
                 )}
               </div>
@@ -385,7 +411,7 @@ const App: React.FC = () => {
                 <BookOpen className="w-16 h-16 text-indigo-600" />
               </div>
               <h2 className="text-3xl font-bold text-slate-800 mb-4">Inicia la teua lectura</h2>
-              <p className="text-slate-500 mb-8 leading-relaxed">Puja un fitxer EPUB i gaudeix de la lectura amb IA de Gemini.</p>
+              <p className="text-slate-500 mb-8 leading-relaxed">Puja un EPUB i gaudeix de la lectura amb IA. Hem optimitzat l'ús per a la capa gratuïta de Gemini.</p>
               <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-full flex items-center gap-3 font-semibold transition-all shadow-xl hover:scale-105 active:scale-95">
                 <Upload className="w-5 h-5" />
                 <span>Triar fitxer EPUB</span>
@@ -404,7 +430,6 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* STABILIZED VIEWPORT to prevent ResizeObserver calculations loop */}
           <div className="flex-1 w-full h-full relative overflow-hidden bg-slate-50">
              <div ref={viewerRef} className={`absolute inset-0 ${book ? 'opacity-100' : 'opacity-0'} transition-opacity duration-500`} />
           </div>
@@ -456,7 +481,7 @@ const App: React.FC = () => {
                   <Volume2 className="w-4 h-4 text-indigo-300 animate-pulse" />
                   <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-300">Narració IA • {playback.dialect}</span>
                 </div>
-                <p className="text-sm font-medium italic opacity-90 line-clamp-2">"{currentTextChunks[playback.currentSentenceIndex]}"</p>
+                <p className="text-sm font-medium italic opacity-90 line-clamp-2">"{currentTextChunks[playback.currentSentenceIndex]?.substring(0, 100)}..."</p>
               </div>
             )}
           </div>
