@@ -1,0 +1,7 @@
+{
+  "name": "EpubNarrator AI",
+  "description": "An advanced EPUB reader that uses Gemini 2.5 Flash TTS to narrate your books with high-quality AI voices. Load any EPUB file and enjoy a seamless listening experience.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
