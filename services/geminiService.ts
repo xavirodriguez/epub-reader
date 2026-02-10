@@ -6,30 +6,29 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export class GeminiTTSService {
   private lastRequestTime = 0;
-  private readonly MIN_GAP = 10000; // 10 seconds minimum between successful requests for free tier
+  private readonly MIN_GAP = 15000; 
 
-  async generateSpeech(text: string, voice: VoiceName, dialect: Dialect, retries = 8): Promise<string | undefined> {
-    // Basic cleaning to optimize character count
+  async generateSpeech(text: string, voice: VoiceName, dialect: Dialect, retries = 1): Promise<string | undefined> {
     const cleanedText = text.replace(/\s+/g, ' ').trim();
     if (!cleanedText) return undefined;
 
-    const dialectInstruction = dialect === Dialect.Valencian 
-      ? "Llegeix aquest text amb accent i entonació de la variant regional valenciana (València, Alacant o Castelló)."
-      : "Llegeix aquest text amb accent de català estàndard.";
+    const dialectContext = dialect === Dialect.Valencian ? "valencià" : "català";
+    
+    const fullPrompt = `
+      Format: TTS Dialogue. Language: ${dialectContext}.
+      Narradora: (descriptive text)
+      Harry: (Harry's dialogue)
+      Text: ${cleanedText}
+    `.trim();
 
-    const fullPrompt = `${dialectInstruction} El text és: ${cleanedText}`;
-
-    for (let i = 0; i < retries; i++) {
+    for (let i = 0; i <= retries; i++) {
       try {
-        // Enforce a global gap between requests to stay under RPM limits
         const now = Date.now();
-        // Fixed typo: removed duplicate 'this' keyword
         const timeSinceLast = now - this.lastRequestTime;
         if (timeSinceLast < this.MIN_GAP) {
           await sleep(this.MIN_GAP - timeSinceLast);
         }
 
-        // Always initialize GoogleGenAI with a named parameter object and process.env.API_KEY
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         
         const response = await ai.models.generateContent({
@@ -38,33 +37,39 @@ export class GeminiTTSService {
           config: {
             responseModalities: [Modality.AUDIO],
             speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: voice },
-              },
-            },
+              multiSpeakerVoiceConfig: {
+                speakerVoiceConfigs: [
+                  {
+                    speaker: 'Narradora',
+                    voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
+                  },
+                  {
+                    speaker: 'Harry',
+                    voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+                  }
+                ]
+              }
+            }
           },
         });
 
         const data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!data) throw new Error("No audio data received");
+        if (!data) throw new Error("No data received");
         
         this.lastRequestTime = Date.now();
         return data;
 
       } catch (error: any) {
-        const errorMsg = error?.message || "";
-        const isRateLimit = errorMsg.includes('429') || error?.status === 429 || error?.code === 429;
+        const status = error?.status || (error?.message?.includes('429') ? 429 : 0);
         
-        if (isRateLimit && i < retries - 1) {
-          // Very aggressive backoff for free tier: 30s, 60s, 120s...
-          // This ensures the "leaky bucket" of the API has time to empty.
-          const waitTime = Math.pow(2, i) * 30000; 
-          console.warn(`Quota 429 (Resource Exhausted). Esperant ${waitTime/1000} segons per a reintentar...`);
-          await sleep(waitTime);
+        // Si és un error de quota i ens queden intents (molt pocs ara)
+        if (status === 429 && i < retries) {
+          console.warn(`[Quota 429] Intentant un últim cop en 10s...`);
+          await sleep(10000);
           continue;
         }
         
-        console.error("Gemini TTS Error:", error);
+        // Si falla del tot, llencem l'error cap amunt immediatament
         throw error;
       }
     }
