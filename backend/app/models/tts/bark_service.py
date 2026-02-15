@@ -132,9 +132,15 @@ class BarkTTSService(BaseTTSService):
 
     async def health_check(self) -> bool:
         """Health check"""
-        # Bark es muy lento para generar audio en cada check
-        # Solo verificamos que el servicio esté marcado como listo
-        return self.is_ready
+        if not self.is_ready:
+            return False
+
+        try:
+            # Test muy corto (Bark es lento)
+            await self.generate_speech("Hola", voice="narradora")
+            return True
+        except Exception:
+            return False
 
     async def shutdown(self):
         """Limpiar modelos de memoria"""
