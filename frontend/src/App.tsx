@@ -6,6 +6,7 @@ import { decodeBase64, decodeAudioData, createWavBlob } from './services/audioSe
 import { VoiceName, Chapter, BookMetadata, PlaybackState, Dialect } from './types';
 import { SUPPORTED_VOICES, APP_NAME } from './constants';
 import { ProviderSelector } from './components/ProviderSelector';
+import { backendService, TTSProvider } from './services/backendService';
 
 declare const ePub: any;
 
@@ -124,48 +125,88 @@ const App: React.FC = () => {
     if (!book) return;
     setExportProgress({ current: 0, total: 1 });
     setError(null);
+
+    const savedProvider = localStorage.getItem('tts_provider') as TTSProvider;
+    const useLocalExport = savedProvider !== TTSProvider.Gemini;
+
     try {
       const section = book.spine.get(chapter.href);
       await section.load(book.load.bind(book));
       const text = section.document.body.innerText;
-      const chunks = chunkText(text, 1000);
-      
-      if (chunks.length === 0) { setExportProgress(null); return; }
 
-      setExportProgress({ current: 0, total: chunks.length });
-      const pcmChunks: Int16Array[] = [];
+      if (useLocalExport) {
+        // Usar exportación asíncrona del backend
+        const taskId = await backendService.exportChapter(
+          text,
+          'narradora',
+          'harry',
+          'ca',
+          playback.dialect === Dialect.Valencian ? 'valencià' : 'català'
+        );
 
-      for (let i = 0; i < chunks.length; i++) {
-        setExportProgress({ current: i + 1, total: chunks.length, isWaiting: false });
-        try {
-          const base64Audio = await geminiTTS.generateSpeech(chunks[i], playback.voice, playback.dialect);
-          if (base64Audio) {
-            const rawBytes = decodeBase64(base64Audio);
-            pcmChunks.push(new Int16Array(rawBytes.buffer));
+        // Polling para el estado
+        let completed = false;
+        while (!completed) {
+          const status = await backendService.getExportStatus(taskId);
+
+          if (status.status === 'completed' || status.status === 'success') {
+            setExportProgress({ current: 100, total: 100 });
+            const downloadUrl = backendService.getDownloadUrl(taskId);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = `${chapter.title.replace(/[/\\?%*:|"<>]/g, '-')}.wav`;
+            a.click();
+            completed = true;
+          } else if (status.status === 'failed' || status.status === 'failure') {
+            throw new Error(status.error || "Error en l'exportació local");
+          } else {
+            // Actualizar progreso si está disponible
+            const current = status.progress || 0;
+            const total = status.total || 100;
+            setExportProgress({ current, total, isWaiting: false });
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
-          await new Promise(resolve => setTimeout(resolve, 15000));
-        } catch (innerErr: any) {
-          // Si falla, tancem el popup immediatament i avisem
-          setExportProgress(null); 
-          if (innerErr?.message?.includes('429')) {
-            throw new Error("Quota esgotada: No es pot generar el capítol ara mateix. Intenta-ho en uns minuts.");
-          }
-          throw innerErr;
         }
+      } else {
+        // Usar método original (chunk por chunk vía Gemini)
+        const chunks = chunkText(text, 1000);
+        if (chunks.length === 0) { setExportProgress(null); return; }
+
+        setExportProgress({ current: 0, total: chunks.length });
+        const pcmChunks: Int16Array[] = [];
+
+        for (let i = 0; i < chunks.length; i++) {
+          setExportProgress({ current: i + 1, total: chunks.length, isWaiting: false });
+          try {
+            const base64Audio = await geminiTTS.generateSpeech(chunks[i], playback.voice, playback.dialect);
+            if (base64Audio) {
+              const rawBytes = decodeBase64(base64Audio);
+              pcmChunks.push(new Int16Array(rawBytes.buffer));
+            }
+            // Solo esperar si es Gemini real
+            await new Promise(resolve => setTimeout(resolve, 15000));
+          } catch (innerErr: any) {
+            setExportProgress(null);
+            if (innerErr?.message?.includes('429')) {
+              throw new Error("Quota esgotada: No es pot generar el capítol ara mateix. Intenta-ho en uns minuts.");
+            }
+            throw innerErr;
+          }
+        }
+
+        const totalLen = pcmChunks.reduce((acc, chunk) => acc + chunk.length, 0);
+        const combinedPcm = new Int16Array(totalLen);
+        let offset = 0;
+        for (const chunk of pcmChunks) { combinedPcm.set(chunk, offset); offset += chunk.length; }
+
+        const blob = createWavBlob(combinedPcm, 24000);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${chapter.title.replace(/[/\\?%*:|"<>]/g, '-')}.wav`;
+        a.click();
+        URL.revokeObjectURL(url);
       }
-
-      const totalLen = pcmChunks.reduce((acc, chunk) => acc + chunk.length, 0);
-      const combinedPcm = new Int16Array(totalLen);
-      let offset = 0;
-      for (const chunk of pcmChunks) { combinedPcm.set(chunk, offset); offset += chunk.length; }
-
-      const blob = createWavBlob(combinedPcm, 24000);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${chapter.title.replace(/[/\\?%*:|"<>]/g, '-')}.wav`;
-      a.click();
-      URL.revokeObjectURL(url);
     } catch (err: any) {
       setExportProgress(null);
       setError(err.message || "Error exportant àudio.");
