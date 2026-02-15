@@ -80,11 +80,9 @@ class TTSManager:
 
         if not active_engines:
             logger.error("No TTS engines available!")
-            # No lanzamos ServiceUnavailableException aquí para permitir que la app arranque
-            # pero reportaremos el error.
-        else:
-            logger.info(f"TTS Manager ready with engines: {[e.value for e in active_engines]}")
+            raise ServiceUnavailableException("TTS")
 
+        logger.info(f"TTS Manager ready with engines: {[e.value for e in active_engines]}")
         self.initialized = True
 
     async def _init_engine(
@@ -143,8 +141,7 @@ class TTSManager:
             TTSException: Si todos los engines fallan
         """
         if not self.initialized:
-            # Intentar inicializar si no se hizo
-            await self.initialize()
+            raise TTSException("TTS Manager not initialized")
 
         # Validar longitud de texto
         if len(text) > settings.MAX_TEXT_LENGTH:
@@ -153,7 +150,6 @@ class TTSManager:
             )
 
         # Generar clave de caché
-        cache_key = None
         if use_cache and settings.TTS_CACHE_ENABLED:
             cache_key = cache_manager._generate_key(
                 prefix="tts",
@@ -171,22 +167,24 @@ class TTSManager:
         # Determinar orden de engines a intentar
         target_engine = engine or self.default_engine
 
-        engines_to_try = []
-        if target_engine in self.engines and self.engines[target_engine].is_ready:
-            engines_to_try.append(target_engine)
-
-        for e in self.fallback_order:
-            if e != target_engine and e in self.engines and self.engines[e].is_ready:
-                engines_to_try.append(e)
-
-        if not engines_to_try:
-            raise TTSException("No TTS engines available for generation")
+        if target_engine in self.engines:
+            engines_to_try = [target_engine] + [
+                e for e in self.fallback_order if e != target_engine
+            ]
+        else:
+            engines_to_try = self.fallback_order
 
         # Intentar generación con cada engine
         last_error = None
 
         for engine_type in engines_to_try:
+            if engine_type not in self.engines:
+                continue
+
             service = self.engines[engine_type]
+
+            if not service.is_ready:
+                continue
 
             try:
                 logger.info(f"Generating speech with {engine_type.value}")
@@ -198,7 +196,7 @@ class TTSManager:
                 )
 
                 # Guardar en caché
-                if use_cache and settings.TTS_CACHE_ENABLED and cache_key:
+                if use_cache and settings.TTS_CACHE_ENABLED:
                     await cache_manager.set(cache_key, audio_bytes)
 
                 logger.info(
