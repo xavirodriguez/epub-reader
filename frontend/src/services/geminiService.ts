@@ -9,11 +9,16 @@ export class GeminiTTSService {
   private lastRequestTime = 0;
   private readonly MIN_GAP = 15000; 
 
-  async generateSpeech(text: string, voice: VoiceName, dialect: Dialect, retries = 1): Promise<string | undefined> {
+  async generateSpeech(
+    text: string,
+    voice: VoiceName,
+    dialect: Dialect,
+    retries = 1
+  ): Promise<string | undefined> {
+
     // NUEVO: Intentar primero con backend local si está habilitado
     try {
-      const savedProvider = localStorage.getItem('tts_provider');
-      const useBackend = savedProvider !== 'gemini';
+      const useBackend = localStorage.getItem('tts_provider') !== 'gemini';
 
       if (useBackend) {
         const audioBase64 = await backendService.generateSpeech(
@@ -31,6 +36,7 @@ export class GeminiTTSService {
       console.warn('[TTS] Backend failed, falling back to Gemini:', backendError);
     }
 
+    // FALLBACK: Código original de Gemini
     const cleanedText = text.replace(/\s+/g, ' ').trim();
     if (!cleanedText) return undefined;
 
@@ -51,7 +57,7 @@ export class GeminiTTSService {
           await sleep(this.MIN_GAP - timeSinceLast);
         }
 
-        const ai = new GoogleGenAI({ apiKey: (import.meta as any).env?.VITE_GEMINI_API_KEY || (process as any).env?.API_KEY });
+        const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
         
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash-preview-tts",
@@ -84,14 +90,12 @@ export class GeminiTTSService {
       } catch (error: any) {
         const status = error?.status || (error?.message?.includes('429') ? 429 : 0);
         
-        // Si és un error de quota i ens queden intents (molt pocs ara)
         if (status === 429 && i < retries) {
           console.warn(`[Quota 429] Intentant un últim cop en 10s...`);
           await sleep(10000);
           continue;
         }
         
-        // Si falla del tot, llencem l'error cap amunt immediatament
         throw error;
       }
     }

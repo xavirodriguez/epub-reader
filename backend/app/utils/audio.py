@@ -49,27 +49,16 @@ def pcm_to_numpy(pcm_bytes: bytes) -> np.ndarray:
     return np.frombuffer(pcm_bytes, dtype=np.int16)
 
 
-def get_wav_bytes(
-    audio_data: np.ndarray,
-    sample_rate: int = 24000,
-    channels: int = 1
-) -> bytes:
-    """
-    Convertir audio a bytes formato WAV.
-    """
-    import io
-    buffer = io.BytesIO()
-    with wave.open(buffer, 'wb') as wav_file:
-        wav_file.setnchannels(channels)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(sample_rate)
-        wav_file.writeframes(audio_data.tobytes())
-    return buffer.getvalue()
-
-
 def normalize_audio(audio: np.ndarray, target_db: float = -20.0) -> np.ndarray:
     """
     Normalizar nivel de audio.
+
+    Args:
+        audio: Array de audio
+        target_db: Nivel objetivo en dB
+
+    Returns:
+        Audio normalizado
     """
     # Calcular RMS actual
     rms = np.sqrt(np.mean(audio.astype(np.float32) ** 2))

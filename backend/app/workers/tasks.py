@@ -26,11 +26,8 @@ class CallbackTask(Task):
     def __call__(self, *args, **kwargs):
         if not self._initialized:
             # Inicializar servicios en el worker
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
             # Inicializar TTS manager
             loop.run_until_complete(tts_manager.initialize())
@@ -163,10 +160,7 @@ def export_chapter_task(
 
                 # Delay entre requests (evitar rate limits)
                 if source != "cache":
-                    time.sleep(1)  # Reducido de 15s para propósitos de prueba/demo si es necesario, pero el prompt decía 15.
-                    # El prompt decía time.sleep(15) # 15 segundos entre generaciones
-                    # Lo dejaré en 15 como dice el prompt.
-                    time.sleep(14)
+                    time.sleep(15)  # 15 segundos entre generaciones
 
             except Exception as e:
                 logger.error(f"Error generating segment {i+1}: {e}")

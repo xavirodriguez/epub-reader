@@ -5,7 +5,6 @@ Punto de entrada del backend.
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from prometheus_fastapi_instrumentator import Instrumentator
 from contextlib import asynccontextmanager
 import time
 
@@ -42,9 +41,7 @@ async def lifespan(app: FastAPI):
 
     except Exception as e:
         logger.error(f"Startup failed: {e}")
-        # En desarrollo a veces queremos que siga arrancando aunque fallen servicios
-        if settings.ENVIRONMENT == "production":
-            raise
+        raise
 
     yield
 
@@ -66,9 +63,6 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
-
-# Instrumentación Prometheus
-Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 
 # CORS Middleware
