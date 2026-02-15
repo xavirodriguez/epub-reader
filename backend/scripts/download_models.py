@@ -53,26 +53,11 @@ async def main():
     """Main function"""
     logger.info("=== Model Download Script ===")
 
-    # Create voices directory if not exists
-    voices_dir = Path(__file__).parent.parent / "voices"
-    voices_dir.mkdir(exist_ok=True)
-
     # Ollama
     await download_ollama_models()
 
     # Coqui
     download_coqui_models()
-
-    # Create placeholder for reference audios if they don't exist
-    for voice in ["narradora", "harry"]:
-        wav_file = voices_dir / f"{voice}.wav"
-        if not wav_file.exists():
-            logger.info(f"Creating placeholder for {voice}.wav (User should replace this for cloning)")
-            # Create a 1-second empty wav file as placeholder
-            import numpy as np
-            from app.utils.audio import create_wav_file
-            silence = np.zeros(24000, dtype=np.int16)
-            create_wav_file(silence, wav_file, sample_rate=24000)
 
     logger.info("=== Download Complete ===")
 

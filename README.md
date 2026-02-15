@@ -205,3 +205,7 @@ docker-compose logs -f
 ## 📄 Licencia
 
 MIT
+
+## 👥 Contribuciones
+
+PRs bienvenidos!

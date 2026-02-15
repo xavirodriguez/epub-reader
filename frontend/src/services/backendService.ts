@@ -56,7 +56,7 @@ class BackendService {
   private isAvailable: boolean = false;
 
   constructor() {
-    this.baseUrl = (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:8000';
+    this.baseUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
     this.client = axios.create({
       baseURL: `${this.baseUrl}/api`,
