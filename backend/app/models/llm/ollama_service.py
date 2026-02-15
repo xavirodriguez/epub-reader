@@ -199,34 +199,49 @@ Text adaptat al valencià:"""
         max_chunk_size: int = 1000
     ) -> List[str]:
         """
-        Dividir texto en chunks inteligentes respetando estructura.
-
-        Args:
-            text: Texto completo
-            max_chunk_size: Tamaño máximo por chunk
-
-        Returns:
-            Lista de chunks
+        Dividir texto en chunks inteligentes respetando estructura semántica.
+        Prioriza párrafos, luego oraciones.
         """
-        # Implementación simple primero
-        # TODO: Mejorar con LLM para detectar límites naturales
+        if len(text) <= max_chunk_size:
+            return [text.strip()]
 
+        # 1. Intentar por párrafos
         paragraphs = text.split('\n\n')
         chunks = []
         current_chunk = ""
 
         for para in paragraphs:
+            para = para.strip()
+            if not para: continue
+
             if len(current_chunk) + len(para) + 2 <= max_chunk_size:
                 current_chunk += ("\n\n" if current_chunk else "") + para
             else:
+                # El párrafo actual no cabe, guardar el anterior
                 if current_chunk:
                     chunks.append(current_chunk.strip())
-                current_chunk = para
+                    current_chunk = ""
+
+                # Si el párrafo solo ya es más grande que max_chunk_size, dividir por oraciones
+                if len(para) > max_chunk_size:
+                    # Regex para dividir por puntos seguidos de espacio o fin de línea
+                    import re
+                    sentences = re.split(r'(?<=[.!?])\s+', para)
+
+                    for sent in sentences:
+                        if len(current_chunk) + len(sent) + 1 <= max_chunk_size:
+                            current_chunk += (" " if current_chunk else "") + sent
+                        else:
+                            if current_chunk:
+                                chunks.append(current_chunk.strip())
+                            current_chunk = sent
+                else:
+                    current_chunk = para
 
         if current_chunk:
             chunks.append(current_chunk.strip())
 
-        return chunks
+        return [c for c in chunks if c]
 
     async def health_check(self) -> bool:
         """Verificar que Ollama responde"""

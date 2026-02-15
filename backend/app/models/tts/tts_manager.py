@@ -195,6 +195,11 @@ class TTSManager:
                     language=language
                 )
 
+                # Convertir a WAV para compatibilidad universal
+                from app.utils.audio import get_wav_bytes, pcm_to_numpy
+                audio_array = pcm_to_numpy(audio_bytes)
+                audio_bytes = get_wav_bytes(audio_array, sample_rate=settings.TTS_SAMPLE_RATE)
+
                 # Guardar en caché
                 if use_cache and settings.TTS_CACHE_ENABLED:
                     await cache_manager.set(cache_key, audio_bytes)

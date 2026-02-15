@@ -41,6 +41,7 @@ aiohttp==3.11.11
 # === Monitoring & Logging ===
 python-json-logger==3.2.1
 prometheus-client==0.21.0
+prometheus-fastapi-instrumentator==7.0.0
 
 # === Development ===
 pytest==8.3.4

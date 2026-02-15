@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.env
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+exports/
+voices/*.wav
+!voices/.gitkeep
+node_modules/
+dist/
+.DS_Store
