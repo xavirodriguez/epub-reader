@@ -11,17 +11,17 @@ sys.modules["TTS.api"] = mock_tts_mod
 sys.modules["bark"] = MagicMock()
 sys.modules["bark.generation"] = MagicMock()
 
-# Add app to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../app')))
+# Add backend to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from main import app
-import models.tts.tts_manager
-import models.llm.ollama_service
-import core.cache
+from app.main import app as fastapi_app
+import app.models.tts.tts_manager
+import app.models.llm.ollama_service
+import app.core.cache
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return TestClient(fastapi_app)
 
 @pytest.fixture(autouse=True)
 def mock_all_services(monkeypatch):
