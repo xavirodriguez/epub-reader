@@ -35,8 +35,7 @@ class OllamaService:
             models = await self.client.list()
             available_models = [m['name'] for m in models.get('models', [])]
 
-            # Ollama models sometimes have :latest tag or similar
-            if self.model not in available_models and f"{self.model}:latest" not in available_models:
+            if self.model not in available_models:
                 logger.warning(
                     f"Model {self.model} not found. "
                     f"Available: {available_models}. "
@@ -94,7 +93,7 @@ Identifica:
 Text:
 {text}
 
-Respon NOMÉS con JSON vàlid en aquest format exacte:
+Respon NOMÉS amb JSON vàlid en aquest format exacte:
 {{
   "segments": [
     {{"speaker": "Narradora", "text": "text del segment"}},
