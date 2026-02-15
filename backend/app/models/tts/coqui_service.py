@@ -31,10 +31,12 @@ class CoquiTTSService(BaseTTSService):
         self.sample_rate = 24000
         self.tts = None
 
-        # Speaker embeddings para diferentes voces
-        self.speakers = {
-            "narradora": None,  # Se cargará speaker embedding
-            "harry": None
+        # Rutas de audios de referencia para clonación
+        from pathlib import Path
+        self.voices_dir = Path(__file__).parent.parent.parent.parent / "voices"
+        self.speaker_wavs = {
+            "narradora": str(self.voices_dir / "narradora.wav"),
+            "harry": str(self.voices_dir / "harry.wav")
         }
 
     async def initialize(self) -> bool:
@@ -89,16 +91,38 @@ class CoquiTTSService(BaseTTSService):
             # XTTS usa código "ca" para catalán
             lang_code = "ca" if language.startswith("ca") else language
 
+            # Determinar speaker o speaker_wav
+            speaker_wav = self.speaker_wavs.get(voice.lower())
+
+            # Verificar si el archivo existe, si no, usar speaker por defecto
+            from pathlib import Path
+            if speaker_wav and not Path(speaker_wav).exists():
+                logger.warning(f"Reference wav not found: {speaker_wav}")
+                speaker_wav = None
+
             # Ejecutar TTS en executor (blocking)
             loop = asyncio.get_event_loop()
-            wav = await loop.run_in_executor(
-                None,
-                lambda: self.tts.tts(
-                    text=text,
-                    language=lang_code,
-                    speaker=voice if voice in ["female", "male"] else None
-                )
-            )
+
+            def run_tts():
+                if speaker_wav:
+                    return self.tts.tts(
+                        text=text,
+                        language=lang_code,
+                        speaker_wav=speaker_wav
+                    )
+                else:
+                    # Fallback a speaker genérico si no hay wav
+                    speaker_name = voice if voice in getattr(self.tts, 'speakers', []) else None
+                    if not speaker_name and not speaker_wav:
+                        speaker_name = "Claribel Dervla" # Speaker por defecto de XTTS v2
+
+                    return self.tts.tts(
+                        text=text,
+                        language=lang_code,
+                        speaker=speaker_name
+                    )
+
+            wav = await loop.run_in_executor(None, run_tts)
 
             # Convertir a numpy array si no lo es
             if not isinstance(wav, np.ndarray):

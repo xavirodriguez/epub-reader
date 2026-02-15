@@ -1,12 +1,13 @@
 """
 Schemas Pydantic para endpoints TTS.
 """
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 from typing import Optional, Literal
 from app.models.tts.base_tts import TTSEngine
+from app.models.base import BaseSchema
 
 
-class TTSRequest(BaseModel):
+class TTSRequest(BaseSchema):
     """Request para generación TTS"""
     text: str = Field(..., min_length=1, max_length=5000)
     voice: str = Field(default="narradora", description="Voice name")
@@ -24,7 +25,7 @@ class TTSRequest(BaseModel):
         return cleaned
 
 
-class TTSResponse(BaseModel):
+class TTSResponse(BaseSchema):
     """Response de generación TTS"""
     audio_data: str = Field(..., description="Base64 encoded PCM audio")
     source: str = Field(..., description="Source: cache/piper/coqui/bark/gemini")
@@ -33,7 +34,7 @@ class TTSResponse(BaseModel):
     duration_seconds: Optional[float] = None
 
 
-class VoiceInfo(BaseModel):
+class VoiceInfo(BaseSchema):
     """Información de una voz"""
     name: str
     gender: Optional[str] = None
@@ -41,14 +42,14 @@ class VoiceInfo(BaseModel):
     description: Optional[str] = None
 
 
-class EngineInfo(BaseModel):
+class EngineInfo(BaseSchema):
     """Información de un engine TTS"""
     engine: str
     ready: bool
     voices: list[VoiceInfo] = []
 
 
-class HealthCheckResponse(BaseModel):
+class HealthCheckResponse(BaseSchema):
     """Response de health check"""
     status: Literal["healthy", "degraded", "unhealthy"]
     engines: dict[str, bool]

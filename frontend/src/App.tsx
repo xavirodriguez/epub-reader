@@ -133,7 +133,10 @@ const App: React.FC = () => {
       }
 
       if (audioBase64 && audioContextRef.current) {
-        const buffer = await decodeAudioData(decodeBase64(audioBase64), audioContextRef.current);
+        // Al ser WAV (tanto Gemini como el nuevo Backend), usamos el decodificador estándar
+        const audioData = decodeBase64(audioBase64);
+        const buffer = await audioContextRef.current.decodeAudioData(audioData.buffer);
+
         const source = audioContextRef.current.createBufferSource();
         source.buffer = buffer;
         source.connect(audioContextRef.current.destination);
@@ -213,9 +216,16 @@ const App: React.FC = () => {
           setExportProgress({ current: i + 1, total: chunks.length, isWaiting: false });
           try {
             const base64Audio = await geminiTTS.generateSpeech(chunks[i], playback.voice, playback.dialect);
-            if (base64Audio) {
-              const rawBytes = decodeBase64(base64Audio);
-              pcmChunks.push(new Int16Array(rawBytes.buffer));
+            if (base64Audio && audioContextRef.current) {
+              const audioData = decodeBase64(base64Audio);
+              const buffer = await audioContextRef.current.decodeAudioData(audioData.buffer);
+              const pcm = buffer.getChannelData(0);
+              // Convert Float32 to Int16
+              const int16Pcm = new Int16Array(pcm.length);
+              for (let j = 0; j < pcm.length; j++) {
+                int16Pcm[j] = Math.max(-1, Math.min(1, pcm[j])) * 32767;
+              }
+              pcmChunks.push(int16Pcm);
             }
             // Solo esperar si es Gemini real
             await new Promise(resolve => setTimeout(resolve, 15000));
