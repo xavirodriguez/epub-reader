@@ -14,12 +14,7 @@ flower==2.0.1  # Monitoring Celery
 ollama==0.4.5
 httpx==0.27.2  # Para comunicación con Ollama (compatible con ollama 0.4.5)
 
-# === TTS Engines ===
-# Piper TTS (via subprocess - instalar binario aparte)
-# Coqui TTS
-TTS==0.22.0
 # Bark
-bark==1.0.0
 
 # === Audio Processing ===
 numpy==1.26.4

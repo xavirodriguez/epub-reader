@@ -100,20 +100,54 @@ const App: React.FC = () => {
     return chunks;
   };
 
-  const playNextChunk = async (chunks: string[], index: number) => {
-    if (index >= chunks.length) { stopAudio(); return; }
+  const playNextChunk = async (segments: any[], index: number) => {
+    if (index >= segments.length) { stopAudio(); return; }
     setPlayback(prev => ({ ...prev, currentSentenceIndex: index, isPlaying: true }));
     setIsWaitingQuota(false);
+
+    const segment = segments[index];
+    const text = typeof segment === 'string' ? segment : segment.text;
+    const speaker = segment.speaker || playback.voice;
+
     try {
-      const base64Audio = await geminiTTS.generateSpeech(chunks[index], playback.voice, playback.dialect);
-      if (base64Audio && audioContextRef.current) {
-        const buffer = await decodeAudioData(decodeBase64(base64Audio), audioContextRef.current);
+      // Intentar primero con backend local si no es Gemini explícito
+      const savedProvider = localStorage.getItem('tts_provider') as TTSProvider;
+      let audioBase64: string | undefined;
+      let sourceName = 'gemini';
+
+      if (savedProvider !== TTSProvider.Gemini) {
+        try {
+          audioBase64 = await backendService.generateSpeech(
+            text,
+            speaker.toLowerCase(),
+            playback.dialect === Dialect.Valencian ? 'ca-valencia' : 'ca'
+          );
+          sourceName = 'local';
+        } catch (e) {
+          if (savedProvider === TTSProvider.Local) throw e;
+          // Fallback a Gemini si es Auto
+          audioBase64 = await geminiTTS.generateSpeech(text, playback.voice, playback.dialect);
+        }
+      } else {
+        audioBase64 = await geminiTTS.generateSpeech(text, playback.voice, playback.dialect);
+      }
+
+      if (audioBase64 && audioContextRef.current) {
+        const buffer = await decodeAudioData(decodeBase64(audioBase64), audioContextRef.current);
         const source = audioContextRef.current.createBufferSource();
         source.buffer = buffer;
         source.connect(audioContextRef.current.destination);
         currentSourceRef.current = source;
         source.start(0);
-        source.onended = () => { if (currentSourceRef.current === source) setTimeout(() => playNextChunk(chunks, index + 1), 15000); };
+
+        // Si es local, no hay delay de 15s. Si es Gemini, sí.
+        const delay = sourceName === 'local' ? 500 : 15000;
+
+        source.onended = () => {
+          if (currentSourceRef.current === source) {
+            setTimeout(() => playNextChunk(segments, index + 1), delay);
+          }
+        };
       }
     } catch (err: any) {
       if (err?.message?.includes('429')) { setIsWaitingQuota(true); setError("Quota excedida. L'IA s'ha aturat."); }
@@ -220,10 +254,35 @@ const App: React.FC = () => {
     if (!rendition) return;
     const contents = rendition.getContents();
     if (!contents || contents.length === 0) return;
+
     let text = '';
     contents.forEach((c: any) => text += c.document.body.innerText);
-    const chunks = chunkText(text);
-    if (chunks.length > 0) { setCurrentTextChunks(chunks); playNextChunk(chunks, 0); }
+
+    const savedProvider = localStorage.getItem('tts_provider') as TTSProvider;
+
+    if (savedProvider !== TTSProvider.Gemini) {
+      setIsLoading(true);
+      try {
+        // Usar segmentación inteligente del backend
+        const result = await backendService.processText(
+          text,
+          true,
+          playback.dialect === Dialect.Valencian ? 'valencià' : 'català'
+        );
+        setIsLoading(false);
+        if (result.processed_segments.length > 0) {
+          playNextChunk(result.processed_segments, 0);
+        }
+      } catch (e) {
+        setIsLoading(false);
+        // Fallback a chunking simple si falla el backend
+        const chunks = chunkText(text);
+        if (chunks.length > 0) playNextChunk(chunks, 0);
+      }
+    } else {
+      const chunks = chunkText(text);
+      if (chunks.length > 0) playNextChunk(chunks, 0);
+    }
   };
 
   return (

@@ -5,6 +5,7 @@ Punto de entrada del backend.
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 from contextlib import asynccontextmanager
 import time
 
@@ -65,6 +66,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Instrumentación Prometheus
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 
 # CORS Middleware
