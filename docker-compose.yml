@@ -1,0 +1,171 @@
+version: '3.8'
+
+services:
+  # Redis - Cache y Broker
+  redis:
+    image: redis:7-alpine
+    container_name: epub-narrator-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - epub-network
+
+  # Ollama - LLM Local
+  ollama:
+    image: ollama/ollama:latest
+    container_name: epub-narrator-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - epub-network
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Backend FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: epub-narrator-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - model-cache:/root/.cache
+      - ./exports:/tmp/epub_narrator_exports
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2
+      - DEFAULT_TTS_ENGINE=piper
+      - PIPER_BINARY_PATH=/usr/local/bin/piper
+      - PIPER_MODEL_PATH=/models/piper/ca_ES-upc_ona-medium.onnx
+      - COQUI_USE_GPU=false
+      - BARK_USE_GPU=false
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    networks:
+      - epub-network
+    restart: unless-stopped
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: epub-narrator-celery
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    volumes:
+      - ./backend:/app
+      - model-cache:/root/.cache
+      - ./exports:/tmp/epub_narrator_exports
+    environment:
+      - ENVIRONMENT=production
+      - REDIS_HOST=redis
+      - OLLAMA_HOST=http://ollama:11434
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      - redis
+      - ollama
+      - backend
+    networks:
+      - epub-network
+    restart: unless-stopped
+
+  # Celery Beat (tareas programadas)
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: epub-narrator-beat
+    command: celery -A app.workers.celery_app beat --loglevel=info
+    volumes:
+      - ./backend:/app
+    environment:
+      - ENVIRONMENT=production
+      - REDIS_HOST=redis
+      - CELERY_BROKER_URL=redis://redis:6379/1
+    depends_on:
+      - redis
+    networks:
+      - epub-network
+    restart: unless-stopped
+
+  # Flower - Monitor Celery (opcional)
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: epub-narrator-flower
+    command: celery -A app.workers.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      - redis
+      - celery-worker
+    networks:
+      - epub-network
+
+  # Frontend React (opcional - para desarrollo)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: epub-narrator-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:8000
+      - VITE_GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - epub-network
+
+networks:
+  epub-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  ollama-data:
+  model-cache:

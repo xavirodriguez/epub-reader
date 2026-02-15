@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
 import { VoiceName, Dialect } from '../types';
+import { backendService, TTSProvider } from './backendService';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -9,6 +10,27 @@ export class GeminiTTSService {
   private readonly MIN_GAP = 15000; 
 
   async generateSpeech(text: string, voice: VoiceName, dialect: Dialect, retries = 1): Promise<string | undefined> {
+    // NUEVO: Intentar primero con backend local si está habilitado
+    try {
+      const savedProvider = localStorage.getItem('tts_provider');
+      const useBackend = savedProvider !== 'gemini';
+
+      if (useBackend) {
+        const audioBase64 = await backendService.generateSpeech(
+          text,
+          voice.toLowerCase(),
+          dialect === Dialect.Valencian ? 'ca-valencia' : 'ca'
+        );
+
+        if (audioBase64) {
+          console.log('[TTS] Used local backend');
+          return audioBase64;
+        }
+      }
+    } catch (backendError) {
+      console.warn('[TTS] Backend failed, falling back to Gemini:', backendError);
+    }
+
     const cleanedText = text.replace(/\s+/g, ' ').trim();
     if (!cleanedText) return undefined;
 
@@ -29,7 +51,7 @@ export class GeminiTTSService {
           await sleep(this.MIN_GAP - timeSinceLast);
         }
 
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = new GoogleGenAI({ apiKey: (import.meta as any).env?.VITE_GEMINI_API_KEY || (process as any).env?.API_KEY });
         
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash-preview-tts",

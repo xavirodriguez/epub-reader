@@ -5,6 +5,7 @@ import { geminiTTS } from './services/geminiService';
 import { decodeBase64, decodeAudioData, createWavBlob } from './services/audioService';
 import { VoiceName, Chapter, BookMetadata, PlaybackState, Dialect } from './types';
 import { SUPPORTED_VOICES, APP_NAME } from './constants';
+import { ProviderSelector } from './components/ProviderSelector';
 
 declare const ePub: any;
 
@@ -227,6 +228,9 @@ const App: React.FC = () => {
                 </button>
               </div>
             ))}
+          </div>
+          <div className="p-4 border-t">
+            <ProviderSelector />
           </div>
         </aside>
 
