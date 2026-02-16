@@ -1,53 +1,22 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
 import { VoiceName, Dialect } from '../types';
-import { backendService, TTSProvider } from './backendService';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export class GeminiTTSService {
   private lastRequestTime = 0;
-  private readonly MIN_GAP = 15000; 
+  private readonly MIN_GAP = 12000; // 12 segons de seguretat
 
-  async generateSpeech(
-    text: string,
-    voice: VoiceName,
-    dialect: Dialect,
-    retries = 1
-  ): Promise<string | undefined> {
-
-    // NUEVO: Intentar primero con backend local si está habilitado
-    try {
-      const useBackend = localStorage.getItem('tts_provider') !== 'gemini';
-
-      if (useBackend) {
-        const audioBase64 = await backendService.generateSpeech(
-          text,
-          voice.toLowerCase(),
-          dialect === Dialect.Valencian ? 'ca-valencia' : 'ca'
-        );
-
-        if (audioBase64) {
-          console.log('[TTS] Used local backend');
-          return audioBase64;
-        }
-      }
-    } catch (backendError) {
-      console.warn('[TTS] Backend failed, falling back to Gemini:', backendError);
-    }
-
-    // FALLBACK: Código original de Gemini
+  async generateSpeech(text: string, voice: VoiceName, dialect: Dialect, retries = 0): Promise<string | undefined> {
     const cleanedText = text.replace(/\s+/g, ' ').trim();
     if (!cleanedText) return undefined;
 
-    const dialectContext = dialect === Dialect.Valencian ? "valencià" : "català";
-    
-    const fullPrompt = `
-      Format: TTS Dialogue. Language: ${dialectContext}.
-      Narradora: (descriptive text)
-      Harry: (Harry's dialogue)
-      Text: ${cleanedText}
-    `.trim();
+    // Prompt comprimit per estalviar tokens i evitar 429
+    const dialectInfo = dialect === Dialect.Valencian ? "Valencian (Western Catalan)" : "Standard Catalan";
+    const fullPrompt = `Role: TTS Multi-speaker. Language: Western Catalan.
+Voices: NARRADORA (desc), HARRY (Harry's dialogue).
+Input: ${cleanedText}`.trim();
 
     for (let i = 0; i <= retries; i++) {
       try {
@@ -57,7 +26,7 @@ export class GeminiTTSService {
           await sleep(this.MIN_GAP - timeSinceLast);
         }
 
-        const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash-preview-tts",
@@ -88,15 +57,7 @@ export class GeminiTTSService {
         return data;
 
       } catch (error: any) {
-        const status = error?.status || (error?.message?.includes('429') ? 429 : 0);
-        
-        if (status === 429 && i < retries) {
-          console.warn(`[Quota 429] Intentant un últim cop en 10s...`);
-          await sleep(10000);
-          continue;
-        }
-        
-        throw error;
+        throw error; // Fail fast per tancar popups
       }
     }
   }
